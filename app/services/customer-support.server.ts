@@ -207,6 +207,8 @@ export class CustomerSupportService {
 
       // 11. Save AI response to database  
       let finalResponse: string;
+      let isIntelligentFallback = false;
+      
       if (shouldEscalate) {
         // Use intelligent fallback even for escalations
         const intelligentFallback = this.aiService.generateFallbackResponse({
@@ -218,6 +220,7 @@ export class CustomerSupportService {
           category: category
         }, 'escalation');
         finalResponse = intelligentFallback.response;
+        isIntelligentFallback = true;
       } else {
         finalResponse = aiResponse.response;
       }
@@ -238,18 +241,10 @@ export class CustomerSupportService {
 
       // 12. Send response via Gmail (or create draft if escalated)
       let emailSent = false;
-      if (shouldEscalate) {
-        // Create draft for human review
-        const draftId = await this.gmailService.createDraft(
-          email.fromEmail,
-          `Re: ${email.subject}`,
-          savedResponse.responseText,
-          email.threadId
-        );
-        
-        console.log(`Email escalated - Draft created: ${draftId}`);
-      } else {
-        // Send automated response
+      const shouldSendDirectly = !shouldEscalate || isIntelligentFallback;
+      
+      if (shouldSendDirectly) {
+        // Send automated response (including intelligent fallback responses)
         emailSent = await this.gmailService.sendReply(
           email.fromEmail,
           `Re: ${email.subject}`,
@@ -265,7 +260,18 @@ export class CustomerSupportService {
               sentAt: new Date()
             }
           });
+          console.log(`Email sent automatically ${isIntelligentFallback ? '(intelligent fallback)' : '(AI response)'}`);
         }
+      } else {
+        // Create draft for human review (only for genuine escalations)
+        const draftId = await this.gmailService.createDraft(
+          email.fromEmail,
+          `Re: ${email.subject}`,
+          savedResponse.responseText,
+          email.threadId
+        );
+        
+        console.log(`Email escalated - Draft created: ${draftId}`);
       }
 
       // 13. Update conversation status
