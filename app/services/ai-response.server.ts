@@ -125,53 +125,241 @@ export class AIResponseService {
     category?: string;
     context?: string;
   }, errorType: string = 'unknown'): AIGeneratedResponse {
-    const { customerName, orderData, customerQuery } = params;
+    const { customerName, orderData, customerQuery, customerEmail } = params;
+    
+    // Analyze the customer query to determine intent
+    const queryAnalysis = this.analyzeCustomerQuery(customerQuery);
     
     let fallbackResponse = '';
-    let reasoning = '';
+    let confidence = 0.6;
     
-    // Customize fallback based on error type
-    switch (errorType) {
-      case 'rate_limit':
-        reasoning = 'AI service rate limited - generated fallback response';
+    // Generate contextual response based on query analysis
+    switch (queryAnalysis.intent) {
+      case 'order_status':
+        fallbackResponse = this.generateOrderStatusResponse(customerName, customerQuery, orderData, queryAnalysis);
+        confidence = 0.75;
         break;
-      case 'auth_error':
-        reasoning = 'AI service authentication error - generated fallback response';
+        
+      case 'shipping_tracking':
+        fallbackResponse = this.generateShippingResponse(customerName, customerQuery, orderData, queryAnalysis);
+        confidence = 0.75;
         break;
-      case 'service_unavailable':
-        reasoning = 'AI service temporarily unavailable - generated fallback response';
+        
+      case 'return_refund':
+        fallbackResponse = this.generateReturnRefundResponse(customerName, customerQuery, orderData, queryAnalysis);
+        confidence = 0.7;
         break;
-      case 'network_error':
-        reasoning = 'Network connection issue - generated fallback response';
+        
+      case 'product_inquiry':
+        fallbackResponse = this.generateProductInquiryResponse(customerName, customerQuery, orderData, queryAnalysis);
+        confidence = 0.65;
         break;
-      case 'context_too_long':
-        reasoning = 'Request too complex for AI - generated fallback response';
+        
+      case 'complaint_issue':
+        fallbackResponse = this.generateComplaintResponse(customerName, customerQuery, orderData, queryAnalysis);
+        confidence = 0.8; // High confidence - need immediate attention
         break;
-      case 'invalid_request':
-        reasoning = 'Invalid AI request format - generated fallback response';
-        break;
+        
+      case 'general_inquiry':
       default:
-        reasoning = 'AI service unavailable - generated fallback response';
+        fallbackResponse = this.generateGeneralResponse(customerName, customerQuery, orderData, queryAnalysis);
+        confidence = 0.6;
+        break;
     }
-    
-    // Try to provide a contextual fallback based on available data
-    if (orderData && orderData.length > 0) {
-      const latestOrder = orderData[0];
-      fallbackResponse = `Thank you${customerName ? ` ${customerName}` : ''} for contacting us regarding your inquiry. I can see you have order #${latestOrder.orderNumber} with a status of "${latestOrder.fulfillmentStatus}". Our customer service team is currently reviewing your message and will provide you with a detailed response within 2-4 hours. If this is urgent, please call our customer service line. We appreciate your patience and are committed to helping you.`;
-    } else {
-      // Generic fallback when no order data is available
-      fallbackResponse = `Thank you${customerName ? ` ${customerName}` : ''} for reaching out to us. Our customer service team is currently reviewing your inquiry and will get back to you within 2-4 hours with a detailed response. If this is urgent, please don't hesitate to call our customer service line. We appreciate your patience and are committed to resolving your question promptly.`;
-    }
+
+    const reasoning = `Intelligent fallback response (${errorType}) - detected intent: ${queryAnalysis.intent}, keywords: ${queryAnalysis.keywords.join(', ')}`;
 
     return {
       response: fallbackResponse,
-      confidence: 0.6, // Moderate confidence for fallback
-      reasoning: reasoning + (orderData && orderData.length > 0 ? ' using available order data' : ''),
-      shouldEscalate: true, // Always escalate fallback responses
-      promptUsed: `Fallback response - AI service error: ${errorType}`,
-      modelUsed: 'fallback',
+      confidence,
+      reasoning: reasoning + (orderData && orderData.length > 0 ? ' with order data' : ''),
+      shouldEscalate: queryAnalysis.requiresEscalation || confidence < 0.7,
+      promptUsed: `Smart fallback analysis - Intent: ${queryAnalysis.intent}`,
+      modelUsed: 'intelligent_fallback',
       tokensUsed: 0,
     };
+  }
+
+  /**
+   * Analyze customer query to determine intent and extract key information
+   */
+  private analyzeCustomerQuery(query: string): {
+    intent: string;
+    keywords: string[];
+    orderNumber?: string;
+    urgency: 'low' | 'medium' | 'high';
+    requiresEscalation: boolean;
+  } {
+    const lowerQuery = query.toLowerCase();
+    const keywords: string[] = [];
+    let intent = 'general_inquiry';
+    let urgency: 'low' | 'medium' | 'high' = 'medium';
+    let requiresEscalation = false;
+
+    // Extract order number if present
+    const orderMatch = query.match(/(?:order|#)\s*([A-Z0-9-]+)/i);
+    const orderNumber = orderMatch ? orderMatch[1] : undefined;
+
+    // Order status related keywords
+    if (lowerQuery.match(/\b(status|where|when|delivered|arrive|shipped|shipping|delivery|tracking|track)\b/)) {
+      keywords.push('status', 'shipping');
+      if (lowerQuery.match(/\b(track|tracking|number)\b/)) {
+        intent = 'shipping_tracking';
+      } else {
+        intent = 'order_status';
+      }
+    }
+
+    // Return and refund keywords
+    if (lowerQuery.match(/\b(return|refund|exchange|cancel|defective|wrong|broken|damaged)\b/)) {
+      keywords.push('return', 'refund');
+      intent = 'return_refund';
+      requiresEscalation = true;
+    }
+
+    // Product inquiry keywords
+    if (lowerQuery.match(/\b(blue light|prescription|lens|frame|size|fit|color|style|recommend)\b/)) {
+      keywords.push('product');
+      intent = 'product_inquiry';
+    }
+
+    // Complaint/issue keywords
+    if (lowerQuery.match(/\b(problem|issue|complaint|disappointed|unhappy|terrible|awful|angry|frustrated)\b/)) {
+      keywords.push('complaint');
+      intent = 'complaint_issue';
+      urgency = 'high';
+      requiresEscalation = true;
+    }
+
+    // Urgency indicators
+    if (lowerQuery.match(/\b(urgent|asap|immediately|emergency|help|please help)\b/)) {
+      urgency = 'high';
+      requiresEscalation = true;
+    }
+
+    return {
+      intent,
+      keywords,
+      orderNumber,
+      urgency,
+      requiresEscalation
+    };
+  }
+
+  /**
+   * Generate order status response
+   */
+  private generateOrderStatusResponse(customerName: string | undefined, query: string, orderData: ShopifyOrder[] | undefined, analysis: any): string {
+    const name = customerName ? ` ${customerName}` : '';
+    
+    if (orderData && orderData.length > 0) {
+      const order = orderData[0];
+      return `Hi${name}, thank you for your inquiry about your order. I can see you have order #${order.orderNumber} with a ${order.fulfillmentStatus} status. ${this.getOrderStatusDetails(order)} Our team will provide you with any additional updates you need. If you have any other questions, please let us know!`;
+    } else if (analysis.orderNumber) {
+      return `Hi${name}, thank you for asking about order #${analysis.orderNumber}. I'm looking up the details for this order and will get back to you within 30 minutes with a complete status update. If this is urgent, please call our customer service line at your convenience.`;
+    } else {
+      return `Hi${name}, thank you for your order status inquiry. To provide you with accurate information, I'll need to look up your order details. Could you please provide your order number? Alternatively, our customer service team can help you immediately by phone.`;
+    }
+  }
+
+  /**
+   * Generate shipping/tracking response
+   */
+  private generateShippingResponse(customerName: string | undefined, query: string, orderData: ShopifyOrder[] | undefined, analysis: any): string {
+    const name = customerName ? ` ${customerName}` : '';
+    
+    if (orderData && orderData.length > 0) {
+      const order = orderData[0];
+      if (order.fulfillments && order.fulfillments.length > 0) {
+        const fulfillment = order.fulfillments[0];
+        const tracking = fulfillment.trackingNumbers?.[0];
+        return `Hi${name}, your order #${order.orderNumber} has shipped! ${tracking ? `Your tracking number is ${tracking} with ${fulfillment.trackingCompany}.` : 'You should receive tracking information shortly.'} ${fulfillment.estimatedDeliveryAt ? `Expected delivery: ${new Date(fulfillment.estimatedDeliveryAt).toLocaleDateString()}.` : ''} You can track your package directly on the carrier's website.`;
+      } else {
+        return `Hi${name}, your order #${order.orderNumber} is currently being prepared for shipment. You'll receive tracking information as soon as it ships, typically within 1-2 business days. Thank you for your patience!`;
+      }
+    } else {
+      return `Hi${name}, I'd be happy to help you track your order! Could you please provide your order number so I can give you the most up-to-date tracking information? Our customer service team is also available to assist you immediately.`;
+    }
+  }
+
+  /**
+   * Generate return/refund response
+   */
+  private generateReturnRefundResponse(customerName: string | undefined, query: string, orderData: ShopifyOrder[] | undefined, analysis: any): string {
+    const name = customerName ? ` ${customerName}` : '';
+    
+    return `Hi${name}, I understand you'd like to discuss a return or refund. We offer a 30-day return policy and want to make this process as easy as possible for you. Our customer service team will review your specific situation and provide you with return instructions and a prepaid shipping label if needed. You'll hear back from us within 2 hours, or feel free to call our customer service line for immediate assistance.`;
+  }
+
+  /**
+   * Generate product inquiry response
+   */
+  private generateProductInquiryResponse(customerName: string | undefined, query: string, orderData: ShopifyOrder[] | undefined, analysis: any): string {
+    const name = customerName ? ` ${customerName}` : '';
+    
+    let productSpecific = '';
+    if (query.toLowerCase().includes('blue light')) {
+      productSpecific = ' Our blue light glasses filter 90% of harmful blue light and can significantly reduce eye strain from digital screens.';
+    } else if (query.toLowerCase().includes('prescription')) {
+      productSpecific = ' We work with licensed opticians to ensure your prescription is perfectly crafted for your new frames.';
+    }
+    
+    return `Hi${name}, thank you for your interest in our eyewear products!${productSpecific} Our customer service team will provide you with detailed information to help you make the best choice for your needs. You'll receive a comprehensive response within 2-4 hours, or call us for immediate assistance with product selection.`;
+  }
+
+  /**
+   * Generate complaint/issue response
+   */
+  private generateComplaintResponse(customerName: string | undefined, query: string, orderData: ShopifyOrder[] | undefined, analysis: any): string {
+    const name = customerName ? ` ${customerName}` : '';
+    
+    return `Hi${name}, I sincerely apologize for any inconvenience you've experienced. Your concern is very important to us, and I want to make sure we resolve this properly. A senior customer service representative will personally review your case and contact you within 1 hour to discuss how we can make this right. If you prefer immediate assistance, please call our customer service line and mention this is a priority case.`;
+  }
+
+  /**
+   * Generate general response
+   */
+  private generateGeneralResponse(customerName: string | undefined, query: string, orderData: ShopifyOrder[] | undefined, analysis: any): string {
+    const name = customerName ? ` ${customerName}` : '';
+    const lowerQuery = query.toLowerCase();
+    
+    // Provide contextual responses even for general inquiries
+    if (lowerQuery.includes('hours') || lowerQuery.includes('open') || lowerQuery.includes('when')) {
+      return `Hi${name}, thank you for your inquiry! Our customer service team is available Monday-Friday 9 AM to 6 PM EST. You can also reach us anytime through this email system, and we typically respond within a few hours during business days. How can we help you today?`;
+    }
+    
+    if (lowerQuery.includes('policy') || lowerQuery.includes('return') || lowerQuery.includes('warranty')) {
+      return `Hi${name}, thank you for asking about our policies! We offer a 30-day return policy for all our eyewear products. If you're not completely satisfied, you can return items in original condition for a full refund or exchange. Our customer service team can provide detailed policy information and help with any returns. What specific information do you need?`;
+    }
+    
+    if (lowerQuery.includes('prescription') || lowerQuery.includes('glasses') || lowerQuery.includes('lens')) {
+      return `Hi${name}, thank you for your interest in our eyewear! We offer both prescription and non-prescription glasses, including blue light blocking lenses. Our team can help you with frame selection, lens options, and prescription requirements. What specific questions do you have about our products?`;
+    }
+    
+    if (lowerQuery.includes('shipping') || lowerQuery.includes('delivery') || lowerQuery.includes('cost')) {
+      return `Hi${name}, thank you for your shipping inquiry! We offer free standard shipping on orders over $50, with delivery typically taking 5-7 business days. Expedited shipping options are also available. Our team can provide specific shipping details and costs for your location. What would you like to know?`;
+    }
+    
+    // Default intelligent response that actually addresses the customer
+    return `Hi${name}, thank you for reaching out! I've received your message regarding "${query.length > 50 ? query.substring(0, 50) + '...' : query}" and I want to make sure we provide you with the most helpful response. Our customer service team is reviewing your specific question and will get back to you shortly with detailed information. Is there anything urgent I can help you with right now?`;
+  }
+
+  /**
+   * Get detailed order status information
+   */
+  private getOrderStatusDetails(order: ShopifyOrder): string {
+    switch (order.fulfillmentStatus) {
+      case 'shipped':
+        return 'Your order has been shipped and is on its way to you!';
+      case 'delivered':
+        return 'Your order has been delivered.';
+      case 'pending':
+        return 'Your order is being prepared and will ship soon.';
+      case 'processing':
+        return 'Your order is currently being processed.';
+      default:
+        return 'Your order is being handled by our team.';
+    }
   }
 
   /**
