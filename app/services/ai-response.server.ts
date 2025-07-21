@@ -116,7 +116,7 @@ export class AIResponseService {
   /**
    * Generate a fallback response when AI is unavailable
    */
-  private generateFallbackResponse(params: {
+  generateFallbackResponse(params: {
     customerQuery: string;
     customerEmail: string;
     customerName?: string;
@@ -564,7 +564,7 @@ Response Style:
    */
   generateEscalationMessage(customerName?: string): string {
     const name = customerName ? ` ${customerName}` : '';
-    return `Thank you${name} for reaching out to us. I want to make sure we provide you with the most accurate and helpful information possible. I'm looking into your inquiry and will get back to you within 2-4 hours with a detailed response. If this is urgent, please don't hesitate to call our customer service line. We appreciate your patience and are committed to resolving your question promptly.`;
+    return `Hi${name}, thank you for contacting us! I've received your message and want to ensure you get the best possible assistance. Our customer service team is reviewing your inquiry and will respond with detailed information shortly. For immediate assistance, please feel free to call our customer service line. We're committed to providing you with excellent support!`;
   }
 
   /**

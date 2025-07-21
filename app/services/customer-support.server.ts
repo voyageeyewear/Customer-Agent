@@ -205,12 +205,26 @@ export class CustomerSupportService {
                             !validation.isValid || 
                             validation.score < 0.6;
 
-      // 11. Save AI response to database
+      // 11. Save AI response to database  
+      let finalResponse: string;
+      if (shouldEscalate) {
+        // Use intelligent fallback even for escalations
+        const intelligentFallback = this.aiService.generateFallbackResponse({
+          customerQuery: email.body,
+          customerEmail: email.fromEmail,
+          customerName: email.fromName,
+          orderData: orderData,
+          similarResponses: similarResponses,
+          category: category
+        }, 'escalation');
+        finalResponse = intelligentFallback.response;
+      } else {
+        finalResponse = aiResponse.response;
+      }
+      
       const savedResponse = await this.prisma.aIResponse.create({
         data: {
-          responseText: shouldEscalate ? 
-            this.aiService.generateEscalationMessage(email.fromName) : 
-            aiResponse.response,
+          responseText: finalResponse,
           confidence: aiResponse.confidence,
           sentViaGmail: false,
           humanReviewed: shouldEscalate,
