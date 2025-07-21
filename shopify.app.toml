@@ -1,0 +1,32 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "0cb57971102a0d1bf21c0e409fa1db6d"
+name = "automation-agent"
+handle = "automation-agent"
+application_url = "https://hi-custom-alliance-easily.trycloudflare.com"
+embedded = true
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true
+
+[webhooks]
+api_version = "2025-07"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "write_products,read_orders,read_customers,read_fulfillments,read_shipping"
+
+[auth]
+redirect_urls = ["https://hi-custom-alliance-easily.trycloudflare.com/auth/callback", "https://hi-custom-alliance-easily.trycloudflare.com/auth/shopify/callback", "https://hi-custom-alliance-easily.trycloudflare.com/api/auth/callback"]
+
+[pos]
+embedded = false

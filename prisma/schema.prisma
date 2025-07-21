@@ -1,0 +1,138 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
+// enough when changing adapters.
+// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
+datasource db {
+  provider = "sqlite"
+  url      = "file:dev.sqlite"
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+}
+
+model CustomerEmail {
+  id              String    @id @default(uuid())
+  gmailMessageId  String    @unique
+  threadId        String?
+  subject         String
+  fromEmail       String
+  fromName        String?
+  body            String
+  htmlBody        String?
+  receivedAt      DateTime
+  processed       Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId  String
+  
+  @@index([gmailMessageId])
+  @@index([fromEmail])
+  @@index([processed])
+}
+
+model Conversation {
+  id              String    @id @default(uuid())
+  customerEmail   String
+  customerName    String?
+  shopifyOrderId  String?
+  status          ConversationStatus @default(ACTIVE)
+  priority        Priority  @default(NORMAL)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  emails          CustomerEmail[]
+  responses       AIResponse[]
+  
+  @@index([customerEmail])
+  @@index([shopifyOrderId])
+  @@index([status])
+}
+
+model AIResponse {
+  id              String    @id @default(uuid())
+  responseText    String
+  confidence      Float
+  sentViaGmail    Boolean   @default(false)
+  humanReviewed   Boolean   @default(false)
+  escalated       Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  sentAt          DateTime?
+  
+  // Relations
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversationId  String
+  
+  // Metadata
+  shopifyData     String?   // JSON string of order data used
+  ragSources      String?   // JSON string of RAG sources used
+  promptUsed      String?
+  
+  @@index([conversationId])
+  @@index([confidence])
+  @@index([sentViaGmail])
+}
+
+model HistoricalResponse {
+  id              String    @id @default(uuid())
+  customerQuery   String
+  response        String
+  category        String?
+  embedding       String?   // JSON string of embedding vector
+  createdAt       DateTime  @default(now())
+  
+  @@index([category])
+}
+
+model AppConfig {
+  id              String    @id @default(uuid())
+  shop            String    @unique
+  gmailEnabled    Boolean   @default(false)
+  gmailCredentials String?  // Encrypted JSON
+  openaiApiKey    String?   // Encrypted
+  aiEnabled       Boolean   @default(false)
+  confidenceThreshold Float @default(0.7)
+  autoReplyEnabled Boolean  @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  @@index([shop])
+}
+
+enum ConversationStatus {
+  ACTIVE
+  RESOLVED
+  ESCALATED
+  ARCHIVED
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
